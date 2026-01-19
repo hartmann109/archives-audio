@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人工智慧文字轉語音服務 @黃宇暘製作</title>
+    <!-- 樣式庫 (Tailwind CSS) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Azure Speech SDK 核心庫 -->
+    <script src="https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@latest/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js"></script>
+    <!-- 圖示庫 (FontAwesome) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
+        .slider-thumb::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; background: #3b82f6; border-radius: 50%; cursor: pointer; }
+        #btn-generate:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background-color: #475569;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Toast 通知 -->
+    <div id="toast" class="fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full shadow-lg transition-all duration-300 opacity-0 translate-y-[-20px] pointer-events-none z-50 flex items-center gap-3 min-w-[300px] justify-center text-sm font-medium">
+        <i id="toast-icon" class="fa-solid fa-circle-info text-lg"></i>
+        <span id="toast-message">Notification</span>
+    </div>
+
+    <!-- Header -->
+    <header class="bg-white border-b border-slate-200 shadow-sm px-6 py-4 flex justify-between items-center z-10 shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-robot text-blue-600 text-2xl"></i>
+            <h1 class="text-xl font-bold text-slate-700">人工智慧文字轉語音服務 <span class="text-sm font-normal text-slate-500">@黃宇暘製作</span></h1>
+        </div>
+        <div class="text-sm text-slate-500 hidden md:flex items-center">
+            <span id="header-status"><i class="fa-solid fa-lock mr-1"></i> 系統鎖定中</span>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- Sidebar -->
+        <aside class="w-full md:w-80 bg-white border-r border-slate-200 flex flex-col overflow-y-auto shrink-0 z-20 absolute md:relative transition-transform duration-300 -translate-x-full md:translate-x-0" id="sidebar">
+            <div class="p-5 space-y-6">
+                
+                <!-- Security Unlock -->
+                <div class="bg-red-50 p-4 rounded-lg border border-red-100 shadow-sm" id="security-panel">
+                    <h2 class="text-sm font-semibold text-red-800 mb-3 flex items-center">
+                        <i class="fa-solid fa-shield-halved mr-2"></i> 系統解鎖
+                    </h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-red-600 mb-1">操作密碼</label>
+                            <div class="relative">
+                                <input type="password" id="unlock-pass" class="w-full text-sm pl-3 pr-10 py-2 border border-red-200 rounded focus:ring-2 focus:ring-red-500 outline-none bg-white" placeholder="請輸入密碼">
+                                <button id="toggle-pass" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1" title="顯示/隱藏密碼">
+                                    <i class="fa-solid fa-eye"></i>
+                                </button>
+                            </div>
+                            <p class="text-[10px] text-red-400 mt-1 ml-1">* 提示: 密碼由數字與小寫字母組成</p>
+                        </div>
+                        <button id="btn-unlock" class="w-full bg-red-600 hover:bg-red-700 text-white text-sm py-2 rounded transition shadow-sm font-medium">
+                            <i class="fa-solid fa-unlock mr-1"></i> 確認解鎖
+                        </button>
+                    </div>
+                </div>
+
+                <!-- API Settings (隱藏式) -->
+                <div class="hidden bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm transition-all duration-500" id="api-settings-panel">
+                    <h2 class="text-sm font-semibold text-slate-600 mb-3 flex items-center justify-between cursor-pointer" onclick="toggleApiSection()">
+                        <span><i class="fa-solid fa-key mr-2"></i> API 連線設定</span>
+                        <i class="fa-solid fa-chevron-up text-xs text-slate-400" id="api-chevron"></i>
+                    </h2>
+                    <div id="api-inputs" class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Subscription Key</label>
+                            <div class="relative">
+                                <input type="password" id="api-key-input" class="w-full text-sm pl-3 pr-8 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none font-mono text-xs" oninput="simpleCheckKey()" placeholder="已嵌入預設 Key">
+                                <div id="key-status-icon" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-300">
+                                    <i class="fa-solid fa-circle-question"></i>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">Region</label>
+                            <input type="text" id="api-region-input" class="w-full text-sm px-3 py-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none font-mono" value="eastasia">
+                        </div>
+                        <button onclick="loadVoices()" class="w-full bg-blue-100 hover:bg-blue-200 text-blue-700 text-xs py-2 rounded transition font-medium">
+                            <i class="fa-solid fa-plug mr-1"></i> 連線並載入語音
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Voice Settings -->
+                <div class="bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm opacity-50 pointer-events-none transition-all duration-500" id="voice-settings-panel">
+                    <h2 class="text-sm font-semibold text-slate-600 mb-3 flex items-center">
+                        <i class="fa-solid fa-microphone-lines mr-2"></i> 語音參數設定
+                    </h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-500 mb-1">選擇語音 (Voice)</label>
+                            <select id="voice-select" class="w-full text-sm px-3 py-2 border rounded bg-white outline-none">
+                                <option>請先解鎖並連線...</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-xs font-medium text-slate-500">語調 (Pitch)</label>
+                                <span id="pitch-val" class="text-xs text-blue-600 font-mono">0%</span>
+                            </div>
+                            <input type="range" id="pitch" min="-50" max="50" value="0" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer slider-thumb" oninput="updateLabel('pitch', this.value)">
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-xs font-medium text-slate-500">語速 (Rate)</label>
+                                <span id="rate-val" class="text-xs text-blue-600 font-mono">0%</span>
+                            </div>
+                            <input type="range" id="rate" min="-50" max="100" value="0" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer slider-thumb" oninput="updateLabel('rate', this.value)">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 flex flex-col h-full relative bg-slate-50">
+            <!-- Mobile Toggle -->
+            <button onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')" class="md:hidden absolute top-2 left-2 z-30 bg-white p-2 rounded shadow border">
+                <i class="fa-solid fa-bars"></i>
+            </button>
+
+            <!-- Text Area -->
+            <div class="flex-1 p-4 md:p-8 flex flex-col min-h-0">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col flex-1 overflow-hidden">
+                    <div class="p-3 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">輸入文字</span>
+                        <span id="char-count" class="text-xs text-slate-400">0 字元</span>
+                    </div>
+                    <textarea id="text-input" class="flex-1 p-4 resize-none outline-none text-slate-700 leading-relaxed text-base" placeholder="請先在左側輸入密碼解鎖，解鎖後在此輸入文字..." oninput="updateCharCount()"></textarea>
+                </div>
+            </div>
+
+            <!-- Action Bar -->
+            <div class="p-4 md:p-8 pt-0 flex flex-col gap-4">
+                <!-- Status & Progress -->
+                <div id="status-bar" class="hidden">
+                    <div class="bg-blue-50 text-blue-700 px-4 py-3 rounded-lg flex items-center shadow-sm border border-blue-100">
+                        <i class="fa-solid fa-circle-notch fa-spin mr-3"></i>
+                        <div class="flex-1">
+                             <div class="flex justify-between mb-1">
+                                <span class="font-bold text-sm" id="progress-status">處理中...</span>
+                                <span class="text-sm font-mono" id="progress-percent">0%</span>
+                            </div>
+                            <div class="w-full bg-blue-200 rounded-full h-1.5">
+                                <div id="progress-bar" class="bg-blue-600 h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Result Section -->
+                <div id="result-container" class="hidden bg-green-50 p-4 rounded-xl border border-green-200 flex flex-col md:flex-row items-center gap-4 justify-between shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <div class="bg-green-100 w-10 h-10 rounded-full flex items-center justify-center text-green-600 shrink-0">
+                            <i class="fa-solid fa-check"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-green-800">轉換完成</h3>
+                            <p class="text-xs text-green-700">音訊已合併完畢</p>
+                        </div>
+                    </div>
+                    <div class="flex flex-col md:flex-row gap-2 w-full md:w-auto items-center">
+                        <audio id="audio-player" controls class="h-10 w-full md:w-64"></audio>
+                        <a id="download-btn" class="w-full md:w-auto bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium flex items-center justify-center transition cursor-pointer shadow-sm hover:shadow">
+                            <i class="fa-solid fa-download mr-2"></i> 下載 MP3
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Main Button -->
+                <button disabled onclick="startSynthesis()" id="btn-generate" class="w-full bg-slate-800 text-white py-4 rounded-xl font-bold text-lg shadow-lg transition flex justify-center items-center">
+                    <i class="fa-solid fa-lock mr-2" id="btn-icon"></i> <span id="btn-text">請先解鎖系統</span>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // 設定與憑證 (已嵌入)
+        const DEFAULT_KEY = "Bdm1lyseQi4JXxdkzNuRc8Cu2cbqgKLNhGIpNz8JqaH9ePfHsmt7JQQJ99CAAC3pKaRXJ3w3AAAYACOGm0FV";
+        const DEFAULT_REGION = "eastasia";
+        const TARGET_HASH = "6e050c7f663dbc9807c84295920f861e9dd2b936a7e65cbabe367df158d3e58c";
+
+        let isUnlocked = false;
+        let availableVoices = [];
+
+        // UI Elements
+        const voiceSelect = document.getElementById('voice-select');
+        const textInput = document.getElementById('text-input');
+        const pitchInput = document.getElementById('pitch');
+        const rateInput = document.getElementById('rate');
+        const voicePanel = document.getElementById('voice-settings-panel');
+        const btnGenerate = document.getElementById('btn-generate');
+        const btnIcon = document.getElementById('btn-icon');
+        const btnText = document.getElementById('btn-text');
+        
+        const securityPanel = document.getElementById('security-panel');
+        const unlockPassInput = document.getElementById('unlock-pass');
+        const btnUnlock = document.getElementById('btn-unlock');
+        const headerStatus = document.getElementById('header-status');
+        const togglePassBtn = document.getElementById('toggle-pass');
+        
+        const apiSettingsPanel = document.getElementById('api-settings-panel');
+        const apiKeyInput = document.getElementById('api-key-input');
+        const apiRegionInput = document.getElementById('api-region-input');
+        const keyStatusIcon = document.getElementById('key-status-icon');
+
+        const statusBar = document.getElementById('status-bar');
+        const progressBar = document.getElementById('progress-bar');
+        const progressPercent = document.getElementById('progress-percent');
+        const progressStatus = document.getElementById('progress-status');
+        const resultContainer = document.getElementById('result-container');
+        const audioPlayer = document.getElementById('audio-player');
+        const downloadBtn = document.getElementById('download-btn');
+
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toast-message');
+        const toastIcon = document.getElementById('toast-icon');
+        let toastTimeout;
+
+        // Functions
+        async function sha256(message) {
+            if (!crypto || !crypto.subtle) {
+                showToast("瀏覽器不支援 Crypto API", 'error');
+                throw new Error("No Crypto API");
+            }
+            const msgBuffer = new TextEncoder().encode(message);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        function showToast(msg, type = 'info') {
+            if (type === 'error') {
+                toast.className = "fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full shadow-lg transition-all duration-300 z-50 flex items-center gap-3 min-w-[300px] justify-center text-sm font-medium bg-red-600 text-white";
+                toastIcon.className = "fa-solid fa-circle-xmark text-lg";
+            } else if (type === 'success') {
+                toast.className = "fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full shadow-lg transition-all duration-300 z-50 flex items-center gap-3 min-w-[300px] justify-center text-sm font-medium bg-green-600 text-white";
+                toastIcon.className = "fa-solid fa-circle-check text-lg";
+            } else {
+                toast.className = "fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full shadow-lg transition-all duration-300 z-50 flex items-center gap-3 min-w-[300px] justify-center text-sm font-medium bg-slate-800 text-white";
+                toastIcon.className = "fa-solid fa-circle-info text-lg";
+            }
+            toastMessage.textContent = msg;
+            toast.classList.remove('opacity-0', 'translate-y-[-20px]', 'pointer-events-none');
+            if (toastTimeout) clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-[-20px]', 'pointer-events-none');
+            }, 3000);
+        }
+
+        function updateLabel(type, val) {
+            document.getElementById(`${type}-val`).textContent = val + '%';
+        }
+
+        function updateCharCount() {
+            document.getElementById('char-count').textContent = textInput.value.length + " 字元";
+        }
+
+        function updateHeaderStatus(msg, isUnlock = false) {
+            if (isUnlock) {
+                headerStatus.innerHTML = `<span class="text-green-600 font-bold"><i class="fa-solid fa-unlock mr-1"></i> ${msg}</span>`;
+            } else {
+                headerStatus.innerHTML = `<span><i class="fa-solid fa-lock mr-1"></i> ${msg}</span>`;
+            }
+        }
+
+        function toggleApiSection(forceOpen = false) {
+            const inputs = document.getElementById('api-inputs');
+            const chevron = document.getElementById('api-chevron');
+            if (forceOpen || inputs.classList.contains('hidden')) {
+                inputs.classList.remove('hidden');
+                chevron.classList.replace('fa-chevron-down', 'fa-chevron-up');
+            } else {
+                inputs.classList.add('hidden');
+                chevron.classList.replace('fa-chevron-up', 'fa-chevron-down');
+            }
+        }
+        
+        function simpleCheckKey() {
+            const val = apiKeyInput.value.trim();
+            if (val.length === 0) {
+                apiKeyInput.classList.remove('border-green-500', 'bg-green-50');
+                keyStatusIcon.innerHTML = '<i class="fa-solid fa-circle-question"></i>';
+                keyStatusIcon.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-slate-300';
+                return false;
+            } else {
+                apiKeyInput.classList.add('border-green-500', 'bg-green-50');
+                keyStatusIcon.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+                keyStatusIcon.className = 'absolute right-2 top-1/2 -translate-y-1/2 text-green-500';
+                return true;
+            }
+        }
+
+        // Logic
+        togglePassBtn.addEventListener('click', () => {
+            const type = unlockPassInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            unlockPassInput.setAttribute('type', type);
+            togglePassBtn.innerHTML = type === 'password' ? '<i class="fa-solid fa-eye"></i>' : '<i class="fa-solid fa-eye-slash"></i>';
+        });
+
+        btnUnlock.addEventListener('click', async () => {
+            const inputPass = unlockPassInput.value.trim();
+            if (!inputPass) return showToast("請輸入密碼", 'error');
+            if (inputPass.includes('1')) return showToast("密碼不含數字 '1'", 'error');
+            if (inputPass.includes('I')) return showToast("密碼不含大寫 'I'", 'error');
+            
+            btnUnlock.disabled = true;
+            btnUnlock.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> 驗證中...';
+
+            try {
+                const hash = await sha256(inputPass);
+                
+                if (hash === TARGET_HASH) {
+                    isUnlocked = true;
+                    securityPanel.classList.add('hidden');
+                    
+                    apiSettingsPanel.classList.remove('hidden');
+                    voicePanel.classList.remove('opacity-50', 'pointer-events-none');
+                    
+                    apiKeyInput.value = DEFAULT_KEY;
+                    apiRegionInput.value = DEFAULT_REGION;
+                    simpleCheckKey();
+
+                    btnGenerate.disabled = false;
+                    btnGenerate.classList.replace('bg-slate-800', 'bg-blue-600');
+                    btnGenerate.classList.add('hover:bg-blue-700');
+                    btnIcon.classList.replace('fa-lock', 'fa-wand-magic-sparkles');
+                    btnText.textContent = '開始轉換成語音';
+                    
+                    updateHeaderStatus("系統已解鎖", true);
+                    showToast("解鎖成功！已載入金鑰", 'success');
+                    
+                    loadVoices();
+
+                } else {
+                    showToast("密碼錯誤", 'error');
+                }
+            } catch (e) {
+                console.error(e);
+                showToast("錯誤: " + e.message, 'error');
+            } finally {
+                btnUnlock.disabled = false;
+                if (!isUnlocked) btnUnlock.innerHTML = '<i class="fa-solid fa-unlock mr-1"></i> 確認解鎖';
+            }
+        });
+
+        async function loadVoices() {
+            if (!isUnlocked) return;
+            const currentKey = apiKeyInput.value.trim();
+            const currentRegion = apiRegionInput.value.trim();
+            if (!currentKey) return showToast("請輸入 API Key", 'error');
+
+            voiceSelect.innerHTML = '<option>連線中...</option>';
+            voiceSelect.disabled = true;
+
+            try {
+                const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(currentKey, currentRegion);
+                const synth = new SpeechSDK.SpeechSynthesizer(speechConfig);
+                const result = await synth.getVoicesAsync();
+
+                if (result.voices && result.voices.length > 0) {
+                    availableVoices = result.voices;
+                    availableVoices.sort((a, b) => {
+                        if (a.locale.includes('zh') && !b.locale.includes('zh')) return -1;
+                        if (!a.locale.includes('zh') && b.locale.includes('zh')) return 1;
+                        return a.localName.localeCompare(b.localName);
+                    });
+
+                    voiceSelect.innerHTML = '';
+                    availableVoices.forEach(voice => {
+                        const option = document.createElement('option');
+                        option.value = voice.shortName;
+                        option.textContent = `${voice.localName} (${voice.locale})`;
+                        if (voice.shortName.includes('HsiaoChen')) option.selected = true;
+                        voiceSelect.appendChild(option);
+                    });
+                    
+                    showToast("連線成功！", 'success');
+                    toggleApiSection(false);
+                } else {
+                     voiceSelect.innerHTML = '<option>無可用語音</option>';
+                     showToast("連線成功但無語音列表", 'info');
+                }
+            } catch (e) {
+                console.error(e);
+                let errorMsg = "連線失敗";
+                if (e.toString().includes("401")) {
+                    errorMsg = "認證失敗 (401): Key 無效";
+                    toggleApiSection(true);
+                }
+                voiceSelect.innerHTML = '<option>連線失敗</option>';
+                showToast(errorMsg, 'error');
+            } finally {
+                voiceSelect.disabled = false;
+            }
+        }
+
+        function splitText(text, maxLen = 2000) {
+            if (text.length <= maxLen) return [text];
+            const chunks = [];
+            let currentChunk = "";
+            const sentences = text.split(/([。.?!；;!！\n]+)/);
+            for (let s of sentences) {
+                if ((currentChunk.length + s.length) > maxLen) {
+                    if (currentChunk.trim()) chunks.push(currentChunk);
+                    currentChunk = s;
+                } else {
+                    currentChunk += s;
+                }
+            }
+            if (currentChunk.trim()) chunks.push(currentChunk);
+            return chunks;
+        }
+
+        async function startSynthesis() {
+            if (!isUnlocked) return;
+            const text = textInput.value.trim();
+            const voiceName = voiceSelect.value;
+            const currentKey = apiKeyInput.value.trim();
+            const currentRegion = apiRegionInput.value.trim();
+            
+            if (!text) return showToast("請輸入內容", 'error');
+            if (voiceName.includes("連線") || voiceName.includes("失敗")) return showToast("請先完成 API 連線", 'error');
+
+            btnGenerate.disabled = true;
+            statusBar.classList.remove('hidden');
+            resultContainer.classList.add('hidden');
+            audioPlayer.src = '';
+
+            const chunks = splitText(text);
+            const audioBuffers = [];
+            
+            try {
+                const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(currentKey, currentRegion);
+                speechConfig.speechSynthesisVoiceName = voiceName;
+                speechConfig.speechSynthesisOutputFormat = SpeechSDK.SpeechSynthesisOutputFormat.Audio24Khz160KBitRateMonoMp3;
+
+                for (let i = 0; i < chunks.length; i++) {
+                    const pct = Math.round(((i) / chunks.length) * 100);
+                    progressBar.style.width = `${pct}%`;
+                    progressPercent.textContent = `${pct}%`;
+                    progressStatus.textContent = `正在處理第 ${i+1}/${chunks.length} 段...`;
+
+                    const pitch = pitchInput.value + '%';
+                    const rate = rateInput.value + '%';
+                    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="zh-TW"><voice name="${voiceName}"><prosody pitch="${pitch}" rate="${rate}">${escapeXml(chunks[i])}</prosody></voice></speak>`;
+
+                    const audioData = await synthesizeSegment(speechConfig, ssml);
+                    if (audioData) audioBuffers.push(audioData);
+                }
+
+                progressBar.style.width = '100%';
+                progressPercent.textContent = '100%';
+                progressStatus.textContent = '合併中...';
+
+                const finalBlob = mergeAudioBuffers(audioBuffers);
+                const url = URL.createObjectURL(finalBlob);
+                
+                audioPlayer.src = url;
+                downloadBtn.href = url;
+                downloadBtn.download = `voice_${new Date().getTime()}.mp3`;
+
+                statusBar.classList.add('hidden');
+                resultContainer.classList.remove('hidden');
+                showToast("合成完成！", 'success');
+
+            } catch (e) {
+                console.error(e);
+                showToast("合成失敗: " + e, 'error');
+                statusBar.classList.add('hidden');
+            } finally {
+                btnGenerate.disabled = false;
+            }
+        }
+
+        function synthesizeSegment(config, ssml) {
+            return new Promise((resolve, reject) => {
+                const synth = new SpeechSDK.SpeechSynthesizer(config, null);
+                synth.speakSsmlAsync(ssml,
+                    result => {
+                        if (result.reason === SpeechSDK.ResultReason.SynthesizingAudioCompleted) {
+                            resolve(result.audioData);
+                        } else {
+                            resolve(null);
+                        }
+                        synth.close();
+                    },
+                    error => {
+                        synth.close();
+                        reject(error);
+                    }
+                );
+            });
+        }
+
+        function mergeAudioBuffers(buffers) {
+            let len = 0;
+            buffers.forEach(b => len += b.byteLength);
+            const tmp = new Uint8Array(len);
+            let offset = 0;
+            buffers.forEach(b => {
+                tmp.set(new Uint8Array(b), offset);
+                offset += b.byteLength;
+            });
+            return new Blob([tmp], { type: 'audio/mp3' });
+        }
+
+        function escapeXml(unsafe) {
+            return unsafe.replace(/[<>&'"]/g, c => {
+                switch (c) {
+                    case '<': return '&lt;';
+                    case '>': return '&gt;';
+                    case '&': return '&amp;';
+                    case '\'': return '&apos;';
+                    case '"': return '&quot;';
+                }
+            });
+        }
+    </script>
+</body>
+</html>
